@@ -8,8 +8,10 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
-	// Members returns a MemberInformer.
-	Members() MemberInformer
+	// Clusters returns a ClusterInformer.
+	Clusters() ClusterInformer
+	// ClusterMembers returns a ClusterMemberInformer.
+	ClusterMembers() ClusterMemberInformer
 }
 
 type version struct {
@@ -23,7 +25,12 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// Members returns a MemberInformer.
-func (v *version) Members() MemberInformer {
-	return &memberInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+// Clusters returns a ClusterInformer.
+func (v *version) Clusters() ClusterInformer {
+	return &clusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// ClusterMembers returns a ClusterMemberInformer.
+func (v *version) ClusterMembers() ClusterMemberInformer {
+	return &clusterMemberInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

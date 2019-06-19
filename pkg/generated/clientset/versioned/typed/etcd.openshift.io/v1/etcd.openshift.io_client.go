@@ -11,7 +11,8 @@ import (
 
 type EtcdV1Interface interface {
 	RESTClient() rest.Interface
-	MembersGetter
+	ClustersGetter
+	ClusterMembersGetter
 }
 
 // EtcdV1Client is used to interact with features provided by the etcd.openshift.io group.
@@ -19,8 +20,12 @@ type EtcdV1Client struct {
 	restClient rest.Interface
 }
 
-func (c *EtcdV1Client) Members() MemberInterface {
-	return newMembers(c)
+func (c *EtcdV1Client) Clusters() ClusterInterface {
+	return newClusters(c)
+}
+
+func (c *EtcdV1Client) ClusterMembers() ClusterMemberInterface {
+	return newClusterMembers(c)
 }
 
 // NewForConfig creates a new EtcdV1Client for the given config.

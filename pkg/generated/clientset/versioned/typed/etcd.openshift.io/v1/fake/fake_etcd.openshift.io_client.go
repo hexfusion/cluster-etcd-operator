@@ -12,8 +12,12 @@ type FakeEtcdV1 struct {
 	*testing.Fake
 }
 
-func (c *FakeEtcdV1) Members() v1.MemberInterface {
-	return &FakeMembers{c}
+func (c *FakeEtcdV1) Clusters() v1.ClusterInterface {
+	return &FakeClusters{c}
+}
+
+func (c *FakeEtcdV1) ClusterMembers() v1.ClusterMemberInterface {
+	return &FakeClusterMembers{c}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

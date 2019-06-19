@@ -37,8 +37,10 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=etcd.openshift.io, Version=v1
-	case v1.SchemeGroupVersion.WithResource("members"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Etcd().V1().Members().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("clusters"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Etcd().V1().Clusters().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("clustermembers"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Etcd().V1().ClusterMembers().Informer()}, nil
 
 	}
 
