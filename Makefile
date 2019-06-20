@@ -3,7 +3,7 @@ all: build
 
 
 # Include the library makefile
-include $(addprefix ./vendor/github.com/openshift/library-go/alpha-build-machinery/make/, \
+include $(addprefix ./library-go/alpha-build-machinery/make/, \
 	golang.mk \
 	targets/openshift/bindata.mk \
 	targets/openshift/deps.mk \
