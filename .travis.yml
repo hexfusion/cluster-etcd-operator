@@ -2,7 +2,7 @@ language: go
 go_import_path: github.com/openshift/cluster-etcd-operator
 
 go:
-  - "1.11"
+  - "1.12"
 
 script:
   - make build test-unit
