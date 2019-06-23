@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"k8s.io/api/core/v1"
+	"github.com/openshift/api/config/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -54,7 +54,7 @@ type ClusterMemberSpec struct {
 	// Name of the member
 	Name string `json:"name"`
 	// PeerURLs of the member
-	PeerURLs string `json:"peerURLs"`
+	PeerURLs []string `json:"peerURLs"`
 }
 
 type ClusterMemberStatus struct {
@@ -84,9 +84,8 @@ type ClusterMemberCondition struct {
 type ClusterMemberConditionType string
 
 const (
-	ClusterMemberAdded   ClusterMemberConditionType = "Added"
-	ClusterMemberExists                             = "Exists"
-	ClusterMemberFailure                            = "Failure"
+	ClusterMemberApproved ClusterMemberConditionType = "Approved"
+	ClusterMemberDenied                              = "Denied"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
