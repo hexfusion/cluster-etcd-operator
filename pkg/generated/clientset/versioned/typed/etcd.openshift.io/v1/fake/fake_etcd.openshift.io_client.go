@@ -16,8 +16,8 @@ func (c *FakeEtcdV1) Clusters() v1.ClusterInterface {
 	return &FakeClusters{c}
 }
 
-func (c *FakeEtcdV1) ClusterMembers() v1.ClusterMemberInterface {
-	return &FakeClusterMembers{c}
+func (c *FakeEtcdV1) ClusterMembers(namespace string) v1.ClusterMemberInterface {
+	return &FakeClusterMembers{c, namespace}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

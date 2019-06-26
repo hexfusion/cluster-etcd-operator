@@ -24,8 +24,8 @@ func (c *EtcdV1Client) Clusters() ClusterInterface {
 	return newClusters(c)
 }
 
-func (c *EtcdV1Client) ClusterMembers() ClusterMemberInterface {
-	return newClusterMembers(c)
+func (c *EtcdV1Client) ClusterMembers(namespace string) ClusterMemberInterface {
+	return newClusterMembers(c, namespace)
 }
 
 // NewForConfig creates a new EtcdV1Client for the given config.

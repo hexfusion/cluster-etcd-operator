@@ -27,6 +27,7 @@ type memberOpts struct {
 	memberName    string
 	peerURLs      []string
 	etcdConfigDir string
+	namespace	string
 	kubeconfig    string
 }
 
@@ -35,6 +36,7 @@ func NewMemberAddCommand(errOut io.Writer) *cobra.Command {
 	memberOpts := memberOpts{
 		errOut:        errOut,
 		etcdConfigDir: "/etc/etcd",
+		namespace: "openshift-etcd"
 	}
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -87,6 +89,8 @@ func (m *memberOpts) Run() error {
 	config := ClusterMemberConfig{
 		Name:     m.memberName,
 		PeerURLs: m.peerURLs,
+		EtcdConfigDir: m.etcdConfigDir,
+		Namespace: m.namespace,
 	}
 	cma, err := NewClusterMemberAgent(config, m.kubeconfig)
 	if err != nil {
@@ -102,6 +106,7 @@ type ClusterMemberConfig struct {
 	Name          string
 	PeerURLs      []string
 	EtcdConfigDir string
+	Namespace     string
 }
 
 // ClusterMemberAgent
@@ -131,9 +136,8 @@ func NewClusterMemberAgent(config ClusterMemberConfig, kubeconfigFile string) (*
 	if err != nil {
 		return nil, fmt.Errorf("error creating client: %v", err)
 	}
-
 	return &ClusterMemberAgent{
-		client: client.ClusterMembers(),
+		client: client.ClusterMembers(config.Namespace),
 		config: config,
 	}, nil
 }
@@ -145,7 +149,10 @@ func (c *ClusterMemberAgent) RequestClusterMemberConfig() error {
 			Kind:       "ClusterMember",
 			APIVersion: "etcd.openshift.io/v1",
 		},
-		metav1.ObjectMeta{},
+		metav1.ObjectMeta{
+			Name:      c.config.Name,
+			Namespace: c.config.Namespace,
+		},
 		cmcfgv1.ClusterMemberSpec{
 			Name:     c.config.Name,
 			PeerURLs: c.config.PeerURLs,

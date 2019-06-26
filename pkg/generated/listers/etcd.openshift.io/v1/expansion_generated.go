@@ -9,3 +9,7 @@ type ClusterListerExpansion interface{}
 // ClusterMemberListerExpansion allows custom methods to be added to
 // ClusterMemberLister.
 type ClusterMemberListerExpansion interface{}
+
+// ClusterMemberNamespaceListerExpansion allows custom methods to be added to
+// ClusterMemberNamespaceLister.
+type ClusterMemberNamespaceListerExpansion interface{}

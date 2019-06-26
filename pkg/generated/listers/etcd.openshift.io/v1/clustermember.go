@@ -13,8 +13,8 @@ import (
 type ClusterMemberLister interface {
 	// List lists all ClusterMembers in the indexer.
 	List(selector labels.Selector) (ret []*v1.ClusterMember, err error)
-	// Get retrieves the ClusterMember from the index for a given name.
-	Get(name string) (*v1.ClusterMember, error)
+	// ClusterMembers returns an object that can list and get ClusterMembers.
+	ClusterMembers(namespace string) ClusterMemberNamespaceLister
 	ClusterMemberListerExpansion
 }
 
@@ -36,9 +36,38 @@ func (s *clusterMemberLister) List(selector labels.Selector) (ret []*v1.ClusterM
 	return ret, err
 }
 
-// Get retrieves the ClusterMember from the index for a given name.
-func (s *clusterMemberLister) Get(name string) (*v1.ClusterMember, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
+// ClusterMembers returns an object that can list and get ClusterMembers.
+func (s *clusterMemberLister) ClusterMembers(namespace string) ClusterMemberNamespaceLister {
+	return clusterMemberNamespaceLister{indexer: s.indexer, namespace: namespace}
+}
+
+// ClusterMemberNamespaceLister helps list and get ClusterMembers.
+type ClusterMemberNamespaceLister interface {
+	// List lists all ClusterMembers in the indexer for a given namespace.
+	List(selector labels.Selector) (ret []*v1.ClusterMember, err error)
+	// Get retrieves the ClusterMember from the indexer for a given namespace and name.
+	Get(name string) (*v1.ClusterMember, error)
+	ClusterMemberNamespaceListerExpansion
+}
+
+// clusterMemberNamespaceLister implements the ClusterMemberNamespaceLister
+// interface.
+type clusterMemberNamespaceLister struct {
+	indexer   cache.Indexer
+	namespace string
+}
+
+// List lists all ClusterMembers in the indexer for a given namespace.
+func (s clusterMemberNamespaceLister) List(selector labels.Selector) (ret []*v1.ClusterMember, err error) {
+	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
+		ret = append(ret, m.(*v1.ClusterMember))
+	})
+	return ret, err
+}
+
+// Get retrieves the ClusterMember from the indexer for a given namespace and name.
+func (s clusterMemberNamespaceLister) Get(name string) (*v1.ClusterMember, error) {
+	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
 	if err != nil {
 		return nil, err
 	}

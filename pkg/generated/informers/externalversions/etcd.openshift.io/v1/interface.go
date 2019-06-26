@@ -32,5 +32,5 @@ func (v *version) Clusters() ClusterInformer {
 
 // ClusterMembers returns a ClusterMemberInformer.
 func (v *version) ClusterMembers() ClusterMemberInformer {
-	return &clusterMemberInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &clusterMemberInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

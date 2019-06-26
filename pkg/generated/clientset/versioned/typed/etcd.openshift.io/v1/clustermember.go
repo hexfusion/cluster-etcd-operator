@@ -16,7 +16,7 @@ import (
 // ClusterMembersGetter has a method to return a ClusterMemberInterface.
 // A group's client should implement this interface.
 type ClusterMembersGetter interface {
-	ClusterMembers() ClusterMemberInterface
+	ClusterMembers(namespace string) ClusterMemberInterface
 }
 
 // ClusterMemberInterface has methods to work with ClusterMember resources.
@@ -36,12 +36,14 @@ type ClusterMemberInterface interface {
 // clusterMembers implements ClusterMemberInterface
 type clusterMembers struct {
 	client rest.Interface
+	ns     string
 }
 
 // newClusterMembers returns a ClusterMembers
-func newClusterMembers(c *EtcdV1Client) *clusterMembers {
+func newClusterMembers(c *EtcdV1Client, namespace string) *clusterMembers {
 	return &clusterMembers{
 		client: c.RESTClient(),
+		ns:     namespace,
 	}
 }
 
@@ -49,6 +51,7 @@ func newClusterMembers(c *EtcdV1Client) *clusterMembers {
 func (c *clusterMembers) Get(name string, options metav1.GetOptions) (result *v1.ClusterMember, err error) {
 	result = &v1.ClusterMember{}
 	err = c.client.Get().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -65,6 +68,7 @@ func (c *clusterMembers) List(opts metav1.ListOptions) (result *v1.ClusterMember
 	}
 	result = &v1.ClusterMemberList{}
 	err = c.client.Get().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -81,6 +85,7 @@ func (c *clusterMembers) Watch(opts metav1.ListOptions) (watch.Interface, error)
 	}
 	opts.Watch = true
 	return c.client.Get().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -91,6 +96,7 @@ func (c *clusterMembers) Watch(opts metav1.ListOptions) (watch.Interface, error)
 func (c *clusterMembers) Create(clusterMember *v1.ClusterMember) (result *v1.ClusterMember, err error) {
 	result = &v1.ClusterMember{}
 	err = c.client.Post().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		Body(clusterMember).
 		Do().
@@ -102,6 +108,7 @@ func (c *clusterMembers) Create(clusterMember *v1.ClusterMember) (result *v1.Clu
 func (c *clusterMembers) Update(clusterMember *v1.ClusterMember) (result *v1.ClusterMember, err error) {
 	result = &v1.ClusterMember{}
 	err = c.client.Put().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		Name(clusterMember.Name).
 		Body(clusterMember).
@@ -116,6 +123,7 @@ func (c *clusterMembers) Update(clusterMember *v1.ClusterMember) (result *v1.Clu
 func (c *clusterMembers) UpdateStatus(clusterMember *v1.ClusterMember) (result *v1.ClusterMember, err error) {
 	result = &v1.ClusterMember{}
 	err = c.client.Put().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		Name(clusterMember.Name).
 		SubResource("status").
@@ -128,6 +136,7 @@ func (c *clusterMembers) UpdateStatus(clusterMember *v1.ClusterMember) (result *
 // Delete takes name of the clusterMember and deletes it. Returns an error if one occurs.
 func (c *clusterMembers) Delete(name string, options *metav1.DeleteOptions) error {
 	return c.client.Delete().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		Name(name).
 		Body(options).
@@ -142,6 +151,7 @@ func (c *clusterMembers) DeleteCollection(options *metav1.DeleteOptions, listOpt
 		timeout = time.Duration(*listOptions.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
+		Namespace(c.ns).
 		Resource("clustermembers").
 		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -154,6 +164,7 @@ func (c *clusterMembers) DeleteCollection(options *metav1.DeleteOptions, listOpt
 func (c *clusterMembers) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1.ClusterMember, err error) {
 	result = &v1.ClusterMember{}
 	err = c.client.Patch(pt).
+		Namespace(c.ns).
 		Resource("clustermembers").
 		SubResource(subresources...).
 		Name(name).

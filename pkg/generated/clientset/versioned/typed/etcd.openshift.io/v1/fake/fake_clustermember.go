@@ -15,6 +15,7 @@ import (
 // FakeClusterMembers implements ClusterMemberInterface
 type FakeClusterMembers struct {
 	Fake *FakeEtcdV1
+	ns   string
 }
 
 var clustermembersResource = schema.GroupVersionResource{Group: "etcd.openshift.io", Version: "v1", Resource: "clustermembers"}
@@ -24,7 +25,8 @@ var clustermembersKind = schema.GroupVersionKind{Group: "etcd.openshift.io", Ver
 // Get takes name of the clusterMember, and returns the corresponding clusterMember object, and an error if there is any.
 func (c *FakeClusterMembers) Get(name string, options v1.GetOptions) (result *etcdopenshiftiov1.ClusterMember, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewRootGetAction(clustermembersResource, name), &etcdopenshiftiov1.ClusterMember{})
+		Invokes(testing.NewGetAction(clustermembersResource, c.ns, name), &etcdopenshiftiov1.ClusterMember{})
+
 	if obj == nil {
 		return nil, err
 	}
@@ -34,7 +36,8 @@ func (c *FakeClusterMembers) Get(name string, options v1.GetOptions) (result *et
 // List takes label and field selectors, and returns the list of ClusterMembers that match those selectors.
 func (c *FakeClusterMembers) List(opts v1.ListOptions) (result *etcdopenshiftiov1.ClusterMemberList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewRootListAction(clustermembersResource, clustermembersKind, opts), &etcdopenshiftiov1.ClusterMemberList{})
+		Invokes(testing.NewListAction(clustermembersResource, clustermembersKind, c.ns, opts), &etcdopenshiftiov1.ClusterMemberList{})
+
 	if obj == nil {
 		return nil, err
 	}
@@ -55,13 +58,15 @@ func (c *FakeClusterMembers) List(opts v1.ListOptions) (result *etcdopenshiftiov
 // Watch returns a watch.Interface that watches the requested clusterMembers.
 func (c *FakeClusterMembers) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewRootWatchAction(clustermembersResource, opts))
+		InvokesWatch(testing.NewWatchAction(clustermembersResource, c.ns, opts))
+
 }
 
 // Create takes the representation of a clusterMember and creates it.  Returns the server's representation of the clusterMember, and an error, if there is any.
 func (c *FakeClusterMembers) Create(clusterMember *etcdopenshiftiov1.ClusterMember) (result *etcdopenshiftiov1.ClusterMember, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateAction(clustermembersResource, clusterMember), &etcdopenshiftiov1.ClusterMember{})
+		Invokes(testing.NewCreateAction(clustermembersResource, c.ns, clusterMember), &etcdopenshiftiov1.ClusterMember{})
+
 	if obj == nil {
 		return nil, err
 	}
@@ -71,7 +76,8 @@ func (c *FakeClusterMembers) Create(clusterMember *etcdopenshiftiov1.ClusterMemb
 // Update takes the representation of a clusterMember and updates it. Returns the server's representation of the clusterMember, and an error, if there is any.
 func (c *FakeClusterMembers) Update(clusterMember *etcdopenshiftiov1.ClusterMember) (result *etcdopenshiftiov1.ClusterMember, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateAction(clustermembersResource, clusterMember), &etcdopenshiftiov1.ClusterMember{})
+		Invokes(testing.NewUpdateAction(clustermembersResource, c.ns, clusterMember), &etcdopenshiftiov1.ClusterMember{})
+
 	if obj == nil {
 		return nil, err
 	}
@@ -82,7 +88,8 @@ func (c *FakeClusterMembers) Update(clusterMember *etcdopenshiftiov1.ClusterMemb
 // Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 func (c *FakeClusterMembers) UpdateStatus(clusterMember *etcdopenshiftiov1.ClusterMember) (*etcdopenshiftiov1.ClusterMember, error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateSubresourceAction(clustermembersResource, "status", clusterMember), &etcdopenshiftiov1.ClusterMember{})
+		Invokes(testing.NewUpdateSubresourceAction(clustermembersResource, "status", c.ns, clusterMember), &etcdopenshiftiov1.ClusterMember{})
+
 	if obj == nil {
 		return nil, err
 	}
@@ -92,13 +99,14 @@ func (c *FakeClusterMembers) UpdateStatus(clusterMember *etcdopenshiftiov1.Clust
 // Delete takes name of the clusterMember and deletes it. Returns an error if one occurs.
 func (c *FakeClusterMembers) Delete(name string, options *v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteAction(clustermembersResource, name), &etcdopenshiftiov1.ClusterMember{})
+		Invokes(testing.NewDeleteAction(clustermembersResource, c.ns, name), &etcdopenshiftiov1.ClusterMember{})
+
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeClusterMembers) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
-	action := testing.NewRootDeleteCollectionAction(clustermembersResource, listOptions)
+	action := testing.NewDeleteCollectionAction(clustermembersResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &etcdopenshiftiov1.ClusterMemberList{})
 	return err
@@ -107,7 +115,8 @@ func (c *FakeClusterMembers) DeleteCollection(options *v1.DeleteOptions, listOpt
 // Patch applies the patch and returns the patched clusterMember.
 func (c *FakeClusterMembers) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *etcdopenshiftiov1.ClusterMember, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(clustermembersResource, name, pt, data, subresources...), &etcdopenshiftiov1.ClusterMember{})
+		Invokes(testing.NewPatchSubresourceAction(clustermembersResource, c.ns, name, pt, data, subresources...), &etcdopenshiftiov1.ClusterMember{})
+
 	if obj == nil {
 		return nil, err
 	}
