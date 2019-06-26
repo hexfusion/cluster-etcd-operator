@@ -98,6 +98,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	operatorConfigInformers.Start(ctx.Done())
+	kubeInformersForNamespaces.Start(ctx.Done())
 
 	go clusterOperatorStatus.Run(1, ctx.Done())
 	go resourceSyncController.Run(1, ctx.Done())

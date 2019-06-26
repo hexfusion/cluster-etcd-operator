@@ -3,7 +3,6 @@
 // bindata/v4.2.0/etcd/cm.yaml
 // bindata/v4.2.0/etcd/defaultconfig.yaml
 // bindata/v4.2.0/etcd/ns.yaml
-// bindata/v4.2.0/etcd/operator-config.yaml
 // bindata/v4.2.0/etcd/pod-cm.yaml
 // bindata/v4.2.0/etcd/pod.yaml
 // bindata/v4.2.0/etcd/sa.yaml
@@ -98,11 +97,12 @@ func v420EtcdDefaultconfigYaml() (*asset, error) {
 var _v420EtcdNsYaml = []byte(`apiVersion: v1
 kind: Namespace
 metadata:
+  name: openshift-etcd
   annotations:
     openshift.io/node-selector: ""
-  name: openshift-etcd
   labels:
     openshift.io/run-level: "0"
+    openshift.io/cluster-monitoring: "true"
 `)
 
 func v420EtcdNsYamlBytes() ([]byte, error) {
@@ -116,31 +116,6 @@ func v420EtcdNsYaml() (*asset, error) {
 	}
 
 	info := bindataFileInfo{name: "v4.2.0/etcd/ns.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
-	a := &asset{bytes: bytes, info: info}
-	return a, nil
-}
-
-var _v420EtcdOperatorConfigYaml = []byte(`apiVersion: operator.openshift.io/v1
-kind: Etcd
-metadata:
-  name: cluster
-spec:
-  managementState: Managed
-  # TODO this clearly needs to be fixed
-  imagePullSpec: openshift/origin-hypershift:latest
-`)
-
-func v420EtcdOperatorConfigYamlBytes() ([]byte, error) {
-	return _v420EtcdOperatorConfigYaml, nil
-}
-
-func v420EtcdOperatorConfigYaml() (*asset, error) {
-	bytes, err := v420EtcdOperatorConfigYamlBytes()
-	if err != nil {
-		return nil, err
-	}
-
-	info := bindataFileInfo{name: "v4.2.0/etcd/operator-config.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -345,14 +320,13 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
-	"v4.2.0/etcd/cm.yaml":              v420EtcdCmYaml,
-	"v4.2.0/etcd/defaultconfig.yaml":   v420EtcdDefaultconfigYaml,
-	"v4.2.0/etcd/ns.yaml":              v420EtcdNsYaml,
-	"v4.2.0/etcd/operator-config.yaml": v420EtcdOperatorConfigYaml,
-	"v4.2.0/etcd/pod-cm.yaml":          v420EtcdPodCmYaml,
-	"v4.2.0/etcd/pod.yaml":             v420EtcdPodYaml,
-	"v4.2.0/etcd/sa.yaml":              v420EtcdSaYaml,
-	"v4.2.0/etcd/svc.yaml":             v420EtcdSvcYaml,
+	"v4.2.0/etcd/cm.yaml":            v420EtcdCmYaml,
+	"v4.2.0/etcd/defaultconfig.yaml": v420EtcdDefaultconfigYaml,
+	"v4.2.0/etcd/ns.yaml":            v420EtcdNsYaml,
+	"v4.2.0/etcd/pod-cm.yaml":        v420EtcdPodCmYaml,
+	"v4.2.0/etcd/pod.yaml":           v420EtcdPodYaml,
+	"v4.2.0/etcd/sa.yaml":            v420EtcdSaYaml,
+	"v4.2.0/etcd/svc.yaml":           v420EtcdSvcYaml,
 }
 
 // AssetDir returns the file names below a certain
@@ -398,14 +372,13 @@ type bintree struct {
 var _bintree = &bintree{nil, map[string]*bintree{
 	"v4.2.0": {nil, map[string]*bintree{
 		"etcd": {nil, map[string]*bintree{
-			"cm.yaml":              {v420EtcdCmYaml, map[string]*bintree{}},
-			"defaultconfig.yaml":   {v420EtcdDefaultconfigYaml, map[string]*bintree{}},
-			"ns.yaml":              {v420EtcdNsYaml, map[string]*bintree{}},
-			"operator-config.yaml": {v420EtcdOperatorConfigYaml, map[string]*bintree{}},
-			"pod-cm.yaml":          {v420EtcdPodCmYaml, map[string]*bintree{}},
-			"pod.yaml":             {v420EtcdPodYaml, map[string]*bintree{}},
-			"sa.yaml":              {v420EtcdSaYaml, map[string]*bintree{}},
-			"svc.yaml":             {v420EtcdSvcYaml, map[string]*bintree{}},
+			"cm.yaml":            {v420EtcdCmYaml, map[string]*bintree{}},
+			"defaultconfig.yaml": {v420EtcdDefaultconfigYaml, map[string]*bintree{}},
+			"ns.yaml":            {v420EtcdNsYaml, map[string]*bintree{}},
+			"pod-cm.yaml":        {v420EtcdPodCmYaml, map[string]*bintree{}},
+			"pod.yaml":           {v420EtcdPodYaml, map[string]*bintree{}},
+			"sa.yaml":            {v420EtcdSaYaml, map[string]*bintree{}},
+			"svc.yaml":           {v420EtcdSvcYaml, map[string]*bintree{}},
 		}},
 	}},
 }}

@@ -27,7 +27,7 @@ type memberOpts struct {
 	memberName    string
 	peerURLs      []string
 	etcdConfigDir string
-	namespace	string
+	namespace     string
 	kubeconfig    string
 }
 
@@ -36,7 +36,7 @@ func NewMemberAddCommand(errOut io.Writer) *cobra.Command {
 	memberOpts := memberOpts{
 		errOut:        errOut,
 		etcdConfigDir: "/etc/etcd",
-		namespace: "openshift-etcd"
+		namespace:     "openshift-etcd",
 	}
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -87,10 +87,10 @@ func (m *memberOpts) Validate() error {
 
 func (m *memberOpts) Run() error {
 	config := ClusterMemberConfig{
-		Name:     m.memberName,
-		PeerURLs: m.peerURLs,
+		Name:          m.memberName,
+		PeerURLs:      m.peerURLs,
 		EtcdConfigDir: m.etcdConfigDir,
-		Namespace: m.namespace,
+		Namespace:     m.namespace,
 	}
 	cma, err := NewClusterMemberAgent(config, m.kubeconfig)
 	if err != nil {
