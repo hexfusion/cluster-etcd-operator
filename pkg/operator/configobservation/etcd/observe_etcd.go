@@ -145,11 +145,6 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if found {
-		if err := unstructured.SetNestedSlice(observedConfig, currentClusterMembers, clusterMemberPath...); err != nil {
-			errs = append(errs, err)
-		}
-	}
 
 	var etcdURLs []interface{}
 	etcdEndpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdEndpointName)
@@ -186,6 +181,11 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 	}
 
 	if len(errs) > 0 {
+		if found {
+			if err := unstructured.SetNestedSlice(observedConfig, currentClusterMembers, clusterMemberPath...); err != nil {
+				errs = append(errs, err)
+			}
+		}
 		return
 	}
 
