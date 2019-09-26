@@ -60,14 +60,16 @@ func NewClusterMemberController(
 		etcdDiscoveryDomain:  etcdDiscoveryDomain,
 	}
 	kubeInformersForOpenshiftEtcdNamespace.Core().V1().Pods().Informer().AddEventHandler(c.eventHandler())
+	kubeInformersForOpenshiftEtcdNamespace.Core().V1().Endpoints().Informer().AddEventHandler(c.eventHandler())
 
 	return c
 }
 
 type EtcdScaling struct {
-	Metadata *metav1.ObjectMeta `json:"metadata,omitempty"`
-	Members  []Member           `json:"members,omitempty"`
-	PodFQDN  string             `json:"podFQDN,omitempty"`
+	Metadata   *metav1.ObjectMeta `json:"metadata,omitempty"`
+	Members    []Member           `json:"members,omitempty"`
+	PodFQDN    string             `json:"podFQDN,omitempty"`
+	Conditions []ScaleCondition   `json:"conditions,omitempty"`
 }
 
 type Member struct {
@@ -77,7 +79,22 @@ type Member struct {
 	ClientURLS []string `json:"clientURLs,omitempty"`
 }
 
+type ScaleCondition struct {
+	// ScaleConditionType
+	Type ScaleConditionType `json:"type"`
+	// timestamp for the last update to this condition
+	// +optional
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty" protobuf:"bytes,4,opt,name=lastUpdateTime"`
+}
+
+type ScaleConditionType string
+
 func (c *ClusterMemberController) sync() error {
+	// conditions for scale down
+	// given previous observations
+	// endpoint is missing
+	// pod is nla
+
 	pods, err := c.clientset.CoreV1().Pods("openshift-etcd").List(metav1.ListOptions{LabelSelector: "k8s-app=etcd"})
 	if err != nil {
 		klog.Infof("No Pod found in openshift-etcd with label k8s-app=etcd")
@@ -89,6 +106,7 @@ func (c *ClusterMemberController) sync() error {
 		klog.Infof("Found etcd Pod with name %v\n", p.Name)
 
 		if c.IsMember(p.Name) {
+			//TODO read the annotation if it contains this member clear it.
 			klog.Infof("Member is already part of the cluster %s\n", p.Name)
 			continue
 		}
@@ -135,17 +153,13 @@ func (c *ClusterMemberController) sync() error {
 		}
 
 		// start scaling
+		// We only do this if we observe waiting in discovery init pod, meaning pod in not running and not an endpoint.
+		//TODO add check for ^^ if not then could be crashloop.
 		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			result, err := c.clientset.CoreV1().ConfigMaps("openshift-etcd").Get("member-config", metav1.GetOptions{})
-			if err != nil {
+			if err := c.setScaleAnnotation(string(esb)); err != nil {
 				return err
 			}
-			if result.Annotations == nil {
-				result.Annotations = make(map[string]string)
-			}
-			result.Annotations[EtcdScalingAnnotationKey] = string(esb)
-			_, updateErr := c.clientset.CoreV1().ConfigMaps("openshift-etcd").Update(result)
-			return updateErr
+			return nil
 		})
 		if retryErr != nil {
 			return fmt.Errorf("Update approve failed: %v", retryErr)
@@ -169,25 +183,7 @@ func (c *ClusterMemberController) sync() error {
 			return true, nil
 		})
 
-		// TODO break out to func
-		endpoints, err := c.Endpoints()
-		if err != nil {
-			return err
-		}
-		tlsInfo := transport.TLSInfo{
-			CertFile:      etcdCertFile,
-			KeyFile:       etcdKeyFile,
-			TrustedCAFile: etcdTrustedCAFile,
-		}
-		tlsConfig, err := tlsInfo.ClientConfig()
-
-		cfg := &clientv3.Config{
-			Endpoints:   endpoints,
-			DialTimeout: 5 * time.Second,
-			TLS:         tlsConfig,
-		}
-
-		cli, err := clientv3.New(*cfg)
+		cli, err := c.getEtcdClient()
 		if err != nil {
 			return err
 		}
@@ -199,6 +195,7 @@ func (c *ClusterMemberController) sync() error {
 		}
 
 		if c.IsMember(p.Name) {
+			//TODO read the annotation if it contains this member clear it.
 			klog.Infof("Member is already part of the cluster: %s\n", p.Name)
 			continue
 		}
@@ -382,6 +379,54 @@ func (c *ClusterMemberController) eventHandler() cache.ResourceEventHandler {
 	}
 }
 
+func (c *ClusterMemberController) getEtcdClient() (*clientv3.Client, error) {
+	endpoints, err := c.Endpoints()
+	if err != nil {
+		return nil, err
+	}
+	tlsInfo := transport.TLSInfo{
+		CertFile:      etcdCertFile,
+		KeyFile:       etcdKeyFile,
+		TrustedCAFile: etcdTrustedCAFile,
+	}
+	tlsConfig, err := tlsInfo.ClientConfig()
+
+	cfg := &clientv3.Config{
+		Endpoints:   endpoints,
+		DialTimeout: 5 * time.Second,
+		TLS:         tlsConfig,
+	}
+
+	cli, err := clientv3.New(*cfg)
+	if err != nil {
+		return nil, err
+	}
+	return cli, err
+}
+
+func (c *ClusterMemberController) etcdMemberRemove(name string) error {
+	cli, err := c.getEtcdClient()
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+	l, err := cli.MemberList(context.Background())
+	if err != nil {
+		return err
+	}
+	for _, member := range l.Members {
+		if member.Name == name {
+
+			resp, err := cli.MemberRemove(context.Background(), member.ID)
+			if err != nil {
+				return err
+			}
+			klog.Infof("Members left %#v", resp.Members)
+		}
+	}
+	return nil
+}
+
 func etcdMemberAdd(cli *clientv3.Client, peerURLs []string) error {
 	defer cli.Close()
 	resp, err := cli.MemberAdd(context.Background(), peerURLs)
@@ -391,3 +436,47 @@ func etcdMemberAdd(cli *clientv3.Client, peerURLs []string) error {
 	klog.Infof("added etcd member.PeerURLs:%s", resp.Member.PeerURLs)
 	return nil
 }
+
+func (c *ClusterMemberController) setScaleAnnotation(scaling string) error {
+	result, err := c.clientset.CoreV1().ConfigMaps("openshift-etcd").Get("member-config", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if result.Annotations == nil {
+		result.Annotations = make(map[string]string)
+	}
+	result.Annotations[EtcdScalingAnnotationKey] = scaling
+	_, updateErr := c.clientset.CoreV1().ConfigMaps("openshift-etcd").Update(result)
+	if updateErr != nil {
+		return updateErr
+	}
+
+	return nil
+}
+
+//
+// func (c *ClusterMemberController) isPodEndpoint(name string) (bool, error) {
+// 	for _, member := range members {
+// 		var found bool
+// 		//TODO this is a hack we need to deal with bootstrap
+// 		if member.Name == "etcd-bootstrap" {
+// 			continue
+// 		}
+// 		for _, endpoint := range endpoint.Subsets[0].Addresses {
+// 			if member.Name == endpoint.TargetRef.Name {
+// 				klog.Infof("found member %s in endpoint", member.Name)
+// 				found = true
+// 			}
+// 		}
+// 		if !found {
+// 			klog.Infof("observed member %s is not active: scaling down", member.Name)
+// 			//scale down !!!
+// 			if err := c.etcdMemberRemove(member.Name); err != nil {
+// 				c.eventRecorder.Warning("ScalingFailed", err.Error())
+// 				return err
+// 			}
+//
+// 		}
+//
+// 	}
+// }
