@@ -22,134 +22,244 @@ const (
 	etcdEndpointName      = "etcd"
 )
 
-// TODO break out logic into functions to reduce dupe code.
-// ObserveClusterMembers observes the current etcd cluster members.
-func ObserveClusterMembers(genericListers configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (map[string]interface{}, []error) {
-	listers := genericListers.(configobservation.Listers)
-	observedConfig := map[string]interface{}{}
-	memberPath := []string{"cluster", "members"}
-	pendingPath := []string{"cluster", "pending"}
-	var errs []error
+type etcdObserver struct {
+	listers        configobservation.Listers
+	existingConfig map[string]interface{}
+	endpoints      []string
+	HealthyMember  map[string]bool
 
-	previousMembersObserved, found, err := unstructured.NestedSlice(existingConfig, memberPath...)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	previousMembers, err := getMembersFromConfig(previousMembersObserved)
-	if err != nil {
-		errs = append(errs, err)
-	}
+	PreviouslyObservedMembers []interface{}
+	memberPath                []string
 
-	previousPendingObserved, _, err := unstructured.NestedSlice(existingConfig, pendingPath...)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	previousPending, err := getMembersFromConfig(previousPendingObserved)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	var etcdURLs []interface{}
+	PreviouslyObservedPending []interface{}
+	pendingPath               []string
 
-	// etcd-bootstrap is a special case, we make initial assuptions based on the existance of the value in host endpoints
-	// once we scale down bootstrap this record should be removed.
-	bootstrapMember, err := setBootstrapMember(listers, etcdURLs, recorder)
-	if err != nil {
-		return existingConfig, append(errs, err)
-	}
-	etcdURLs = append(etcdURLs, bootstrapMember)
+	ObserverdClusterMembers []interface{}
+	recorder                events.Recorder
+	Errs                    []error
+}
 
-	endpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdEndpointName)
-	if errors.IsNotFound(err) {
-		recorder.Warningf("ObserveClusterMembers", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
-		return existingConfig, append(errs, err)
-	}
-	if err != nil {
-		recorder.Warningf("ObserveClusterMembers", "Error getting %s/%s endpoint: %v", etcdEndpointNamespace, etcdHostEndpointName, err)
-		return existingConfig, append(errs, err)
-	}
-
+func newEtcdObserver(genericListers configobserver.Listers, existingConfig map[string]interface{}, memberPath, pendingPath []string) *etcdObserver {
 	healthyMember := make(map[string]bool)
-	// happy members
+	observer := etcdObserver{
+		listers:        genericListers.(configobservation.Listers),
+		existingConfig: existingConfig,
+		memberPath:     memberPath,
+		pendingPath:    pendingPath,
+		HealthyMember:  healthyMember,
+	}
+
+	previouslyObservedMembers, err := observer.getPathObservationData(observer.memberPath)
+	if err != nil {
+		observer.Errs = append(observer.Errs, err)
+	}
+	observer.PreviouslyObservedMembers = previouslyObservedMembers
+	return &observer
+}
+
+func (e *etcdObserver) getPathObservationData(path []string) ([]interface{}, error) {
+	data, _, err := unstructured.NestedSlice(e.existingConfig, path...)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+func (e *etcdObserver) setBootstrapMember() error {
+	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdHostEndpointName)
+	if errors.IsNotFound(err) {
+		e.recorder.Warningf("setBootstrapMember", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
+		return err
+	}
+	if err != nil {
+		e.recorder.Warningf("setBootstrapMember", "Error getting %s/%s endpoint: %v", etcdEndpointNamespace, etcdHostEndpointName, err)
+		return err
+	}
+	dnsSuffix := endpoints.Annotations["alpha.installer.openshift.io/dns-suffix"]
+	if len(dnsSuffix) == 0 {
+		err := fmt.Errorf("endpoints %s/%s: alpha.installer.openshift.io/dns-suffix annotation not found", etcdEndpointNamespace, etcdHostEndpointName)
+		e.recorder.Warning("setBootstrapMember", err.Error())
+		return err
+	}
+
+	for _, subset := range endpoints.Subsets {
+		for _, address := range subset.Addresses {
+			if address.Hostname == "etcd-bootstrap" {
+				name := address.Hostname
+				peerURLs := fmt.Sprintf("https://%s.%s:2380", name, dnsSuffix)
+				clusterMember, err := setMember(name, []string{peerURLs}, clustermembercontroller.MemberUnknown)
+				if err != nil {
+					return err
+				}
+				e.ObserverdClusterMembers = append(e.ObserverdClusterMembers, clusterMember)
+			}
+		}
+	}
+	return nil
+}
+
+func (e *etcdObserver) setObserverdClusterMembersFromEndpoint() error {
+	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdEndpointName)
+	if errors.IsNotFound(err) {
+		e.recorder.Warningf("ObserveClusterMembers", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
+		return err
+	}
+	if err != nil {
+		e.recorder.Warningf("ObserveClusterMembers", "Error getting %s/%s endpoint: %v", etcdEndpointNamespace, etcdHostEndpointName, err)
+		return err
+	}
+
 	for _, subset := range endpoints.Subsets {
 		for _, address := range subset.Addresses {
 			name := address.TargetRef.Name
 			peerURLs := fmt.Sprintf("https://%s:2380", address.IP)
-			etcdURL, err := setMember(name, []string{peerURLs}, clustermembercontroller.MemberReady)
+			clusterMember, err := setMember(name, []string{peerURLs}, clustermembercontroller.MemberReady)
 			if err != nil {
-				return existingConfig, append(errs, err)
+				return err
 			}
 
-			healthyMember[name] = true
-			etcdURLs = append(etcdURLs, etcdURL)
+			e.HealthyMember[name] = true
+			e.ObserverdClusterMembers = append(e.ObserverdClusterMembers, clusterMember)
 		}
 	}
+	return nil
+}
+
+func (e *etcdObserver) isPendingRemoval(members clustermembercontroller.Member) (bool, error) {
+	previousPendingObserved, found, err := unstructured.NestedSlice(e.existingConfig, e.pendingPath...)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		previousPending, err := getMembersFromConfig(previousPendingObserved)
+		if err != nil {
+			return false, err
+		}
+
+		for _, pendingMember := range previousPending {
+			if pendingMember.Conditions == nil {
+				return false, nil
+			}
+			if pendingMember.Name == members.Name && pendingMember.Conditions[0].Type == clustermembercontroller.MemberRemove {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// TODO break out logic into functions to reduce dupe code.
+// ObserveClusterMembers observes the current etcd cluster members.
+func ObserveClusterMembers(genericListers configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (map[string]interface{}, []error) {
+	observedConfig := map[string]interface{}{}
+
+	observer := newEtcdObserver(
+		genericListers,
+		existingConfig,
+		[]string{"cluster", "members"},
+		[]string{"cluster", "pending"},
+	)
+
+	// etcd-bootstrap is a special case, we make initial assuptions based on the existance of the value in host endpoints
+	// once we scale down bootstrap this record should be removed.
+	if err := observer.setBootstrapMember(); err != nil {
+		observer.Errs = append(observer.Errs, err)
+	}
+
+	if err := observer.setObserverdClusterMembersFromEndpoint(); err != nil {
+		observer.Errs = append(observer.Errs, err)
+	}
+
+	if observer.PreviouslyObservedMembers == nil {
+		if len(observer.Errs) > 0 {
+			return existingConfig, observer.Errs
+		}
+		if len(observer.ObserverdClusterMembers) > 0 {
+			if err := unstructured.SetNestedField(observedConfig, observer.ObserverdClusterMembers, observer.memberPath...); err != nil {
+				return existingConfig, append(observer.Errs, err)
+			}
+		}
+		if !reflect.DeepEqual(observer.PreviouslyObservedMembers, observer.ObserverdClusterMembers) {
+			recorder.Eventf("ObserveClusterMembersUpdated", "Updated cluster members to %v", observer.ObserverdClusterMembers)
+		}
+		return observedConfig, nil
+	}
+
+	previousMembers, err := getMembersFromConfig(observer.PreviouslyObservedMembers)
+	if err != nil {
+		observer.Errs = append(observer.Errs, err)
+	}
+
 	for _, previousMember := range previousMembers {
 		// if we are pending removal that means we have been removed from etcd cluster so we a re no longer listed here
 		// if we are healthy then we are already here :)
-		if healthyMember[previousMember.Name] || isPendingRemoval(previousMember, previousPending) {
+		removeMember, err := observer.isPendingRemoval(previousMember)
+		if err != nil {
+			return existingConfig, append(observer.Errs, err)
+		}
+
+		if observer.HealthyMember[previousMember.Name] || previousMember.Name == "etcd-bootstrap" || removeMember {
 			continue
 		}
-		if previousMember.Name != "etcd-bootstrap" {
-			etcdPod, err := listers.OpenshiftEtcdPodsLister.Pods(etcdEndpointNamespace).Get(previousMember.Name)
+		etcdPod, err := observer.listers.OpenshiftEtcdPodsLister.Pods(etcdEndpointNamespace).Get(previousMember.Name)
+		if errors.IsNotFound(err) {
+			// verify the node exists
+			//TODO this is very opnionated could this come from the endpoint?
+			nodeName := strings.TrimPrefix(previousMember.Name, "etcd-member-")
+
+			//TODO this should be a function
+			node, err := observer.listers.NodeLister.Get(nodeName)
 			if errors.IsNotFound(err) {
-				// verify the node exists
-				//TODO this is very opnionated could this come from the endpoint?
-				nodeName := strings.TrimPrefix(previousMember.Name, "etcd-member-")
-
-				//TODO this should be a function
-				node, err := listers.NodeLister.Get(nodeName)
-				if errors.IsNotFound(err) {
-					// if the node is no londer available we use the endpoint observatiopn
-					klog.Warningf("error: Node %s not found: adding remove status to %s ", nodeName, previousMember.Name)
-					etcdURL, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberRemove)
-					if err != nil {
-						return existingConfig, append(errs, err)
-					}
-					etcdURLs = append(etcdURLs, etcdURL)
-					continue
-				}
-				if node.Status.Conditions != nil && node.Status.Conditions[0].Type != "NodeStatusUnknown" || node.Status.Conditions[0].Type != "NodeStatusDown" {
-					klog.Warningf("Node Condition not expected %s:", node.Status.Conditions[0].Type)
-					etcdURL, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberUnknown)
-					if err != nil {
-						return existingConfig, append(errs, err)
-					}
-					etcdURLs = append(etcdURLs, etcdURL)
-
-					// we dont know why node is not ready but we cant assume we want to scale it
-					continue
-				}
-			}
-
-			// since the pod exists lets figure out if the endpoint being down is a result of etcd crashlooping
-			if etcdPod.Status.ContainerStatuses[0].State.Waiting != nil && etcdPod.Status.ContainerStatuses[0].State.Waiting.Reason == "CrashLoopBackOff" {
-				etcdURL, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberRemove)
+				// if the node is no londer available we use the endpoint observatiopn
+				klog.Warningf("error: Node %s not found: adding remove status to %s ", nodeName, previousMember.Name)
+				clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberRemove)
 				if err != nil {
-					return existingConfig, append(errs, err)
+					return existingConfig, append(observer.Errs, err)
+
 				}
-				etcdURLs = append(etcdURLs, etcdURL)
+				observer.ObserverdClusterMembers = append(observer.ObserverdClusterMembers, clusterMember)
+				continue
+			}
+			if node.Status.Conditions != nil && node.Status.Conditions[0].Type != "NodeStatusUnknown" || node.Status.Conditions[0].Type != "NodeStatusDown" {
+				klog.Warningf("Node Condition not expected %s:", node.Status.Conditions[0].Type)
+				clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberUnknown)
+				if err != nil {
+					return existingConfig, append(observer.Errs, err)
+				}
+				observer.ObserverdClusterMembers = append(observer.ObserverdClusterMembers, clusterMember)
+
+				// we dont know why node is not ready but we cant assume we want to scale it
 				continue
 			}
 		}
-	}
 
-	if len(errs) > 0 {
-		if found {
-			if err := unstructured.SetNestedSlice(observedConfig, previousMembersObserved, memberPath...); err != nil {
-				errs = append(errs, err)
+		// since the pod exists lets figure out if the endpoint being down is a result of etcd crashlooping
+		if etcdPod.Status.ContainerStatuses[0].State.Waiting != nil && etcdPod.Status.ContainerStatuses[0].State.Waiting.Reason == "CrashLoopBackOff" {
+			clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberRemove)
+			if err != nil {
+				return existingConfig, append(observer.Errs, err)
 			}
-		}
-		return existingConfig, errs
-	}
-
-	if len(etcdURLs) > 0 {
-		if err := unstructured.SetNestedField(observedConfig, etcdURLs, memberPath...); err != nil {
-			return existingConfig, append(errs, err)
+			observer.ObserverdClusterMembers = append(observer.ObserverdClusterMembers, clusterMember)
+			continue
 		}
 	}
 
-	if !reflect.DeepEqual(previousMembersObserved, etcdURLs) {
-		recorder.Eventf("ObserveClusterMembersUpdated", "Updated cluster members to %v", etcdURLs)
+	if len(observer.Errs) > 0 {
+		if err := unstructured.SetNestedSlice(observedConfig, observer.PreviouslyObservedMembers, observer.memberPath...); err != nil {
+			return existingConfig, append(observer.Errs, err)
+		}
+		return observedConfig, append(observer.Errs, err)
+	}
+
+	if len(observer.ObserverdClusterMembers) > 0 {
+		if err := unstructured.SetNestedField(observedConfig, observer.ObserverdClusterMembers, observer.memberPath...); err != nil {
+			return existingConfig, append(observer.Errs, err)
+		}
+	}
+
+	if !reflect.DeepEqual(observer.PreviouslyObservedMembers, observer.ObserverdClusterMembers) {
+		recorder.Eventf("ObserveClusterMembersUpdated", "Updated cluster members to %v", observer.ObserverdClusterMembers)
 	}
 	return observedConfig, nil
 }
@@ -167,7 +277,7 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 		errs = append(errs, err)
 	}
 
-	var etcdURLs []interface{}
+	var observerdClusterMembers []interface{}
 	etcdEndpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdEndpointName)
 	if errors.IsNotFound(err) {
 		recorder.Warningf("ObservePendingClusterMembers", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdEndpointName)
@@ -181,22 +291,26 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 	}
 	for _, subset := range etcdEndpoints.Subsets {
 		for _, address := range subset.NotReadyAddresses {
-			etcdURL := map[string]interface{}{}
+			clusterMember := map[string]interface{}{}
 			name := address.TargetRef.Name
-			if err := unstructured.SetNestedField(etcdURL, name, "name"); err != nil {
+			if err := unstructured.SetNestedField(clusterMember, name, "name"); err != nil {
 				return currentConfig, append(errs, err)
 			}
 
 			peerURLs := fmt.Sprintf("https://%s:2380", address.IP)
-			if err := unstructured.SetNestedField(etcdURL, peerURLs, "peerURLs"); err != nil {
+			if err := unstructured.SetNestedField(clusterMember, peerURLs, "peerURLs"); err != nil {
 				return currentConfig, append(errs, err)
 			}
-			etcdURLs = append(etcdURLs, etcdURL)
+			if err := unstructured.SetNestedField(clusterMember, string(clustermembercontroller.MemberPending), "status"); err != nil {
+				return currentConfig, append(errs, err)
+			}
+
+			observerdClusterMembers = append(observerdClusterMembers, clusterMember)
 		}
 	}
 
-	if len(etcdURLs) > 0 {
-		if err := unstructured.SetNestedField(observedConfig, etcdURLs, clusterMemberPath...); err != nil {
+	if len(observerdClusterMembers) > 0 {
+		if err := unstructured.SetNestedField(observedConfig, observerdClusterMembers, clusterMemberPath...); err != nil {
 			return currentConfig, append(errs, err)
 		}
 	}
@@ -210,8 +324,8 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 		return
 	}
 
-	if !reflect.DeepEqual(currentClusterMembers, etcdURLs) {
-		recorder.Eventf("ObservePendingClusterMembersUpdated", "Updated pending cluster members to %v", etcdURLs)
+	if !reflect.DeepEqual(currentClusterMembers, observerdClusterMembers) {
+		recorder.Eventf("ObservePendingClusterMembersUpdated", "Updated pending cluster members to %v", observerdClusterMembers)
 	}
 	return
 }
@@ -233,7 +347,7 @@ func ObserveStorageURLs(genericListers configobserver.Listers, recorder events.R
 		}
 	}
 
-	var etcdURLs []string
+	var observerdClusterMembers []string
 	etcdEndpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdHostEndpointName)
 	if errors.IsNotFound(err) {
 		recorder.Warningf("ObserveStorageFailed", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
@@ -260,11 +374,11 @@ func ObserveStorageURLs(genericListers configobserver.Listers, recorder events.R
 				errs = append(errs, addressErr)
 				continue
 			}
-			etcdURLs = append(etcdURLs, "https://"+address.Hostname+"."+dnsSuffix+":2379")
+			observerdClusterMembers = append(observerdClusterMembers, "https://"+address.Hostname+"."+dnsSuffix+":2379")
 		}
 	}
 
-	if len(etcdURLs) == 0 {
+	if len(observerdClusterMembers) == 0 {
 		emptyURLErr := fmt.Errorf("endpoints %s/%s: no etcd endpoint addresses found", etcdEndpointNamespace, etcdHostEndpointName)
 		recorder.Warning("ObserveStorageFailed", emptyURLErr.Error())
 		errs = append(errs, emptyURLErr)
@@ -274,13 +388,13 @@ func ObserveStorageURLs(genericListers configobserver.Listers, recorder events.R
 		return
 	}
 
-	if err := unstructured.SetNestedStringSlice(observedConfig, etcdURLs, storageConfigURLsPath...); err != nil {
+	if err := unstructured.SetNestedStringSlice(observedConfig, observerdClusterMembers, storageConfigURLsPath...); err != nil {
 		errs = append(errs, err)
 		return
 	}
 
-	if !reflect.DeepEqual(currentEtcdURLs, etcdURLs) {
-		recorder.Eventf("ObserveStorageUpdated", "Updated storage urls to %s", strings.Join(etcdURLs, ","))
+	if !reflect.DeepEqual(currentEtcdURLs, observerdClusterMembers) {
+		recorder.Eventf("ObserveStorageUpdated", "Updated storage urls to %s", strings.Join(observerdClusterMembers, ","))
 	}
 
 	return
@@ -329,39 +443,6 @@ func getMembersFromConfig(config []interface{}) ([]clustermembercontroller.Membe
 	return members, nil
 }
 
-func setBootstrapMember(listers configobservation.Listers, etcdURLs []interface{}, recorder events.Recorder) ([]interface{}, error) {
-	endpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdHostEndpointName)
-	if errors.IsNotFound(err) {
-		recorder.Warningf("setBootstrapMember", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
-		return nil, err
-	}
-	if err != nil {
-		recorder.Warningf("setBootstrapMember", "Error getting %s/%s endpoint: %v", etcdEndpointNamespace, etcdHostEndpointName, err)
-		return nil, err
-	}
-	dnsSuffix := endpoints.Annotations["alpha.installer.openshift.io/dns-suffix"]
-	if len(dnsSuffix) == 0 {
-		err := fmt.Errorf("endpoints %s/%s: alpha.installer.openshift.io/dns-suffix annotation not found", etcdEndpointNamespace, etcdHostEndpointName)
-		recorder.Warning("setBootstrapMember", err.Error())
-		return nil, err
-	}
-
-	for _, subset := range endpoints.Subsets {
-		for _, address := range subset.Addresses {
-			if address.Hostname == "etcd-bootstrap" {
-				name := address.Hostname
-				peerURLs := fmt.Sprintf("https://%s.%s:2380", name, dnsSuffix)
-				etcdURL, err := setMember(name, []string{peerURLs}, clustermembercontroller.MemberUnknown)
-				if err != nil {
-					return nil, err
-				}
-				etcdURLs = append(etcdURLs, etcdURL)
-			}
-		}
-	}
-	return etcdURLs, nil
-}
-
 func setMember(name string, peerURLs []string, status clustermembercontroller.MemberConditionType) (map[string]interface{}, error) {
 	etcdURL := map[string]interface{}{}
 	if err := unstructured.SetNestedField(etcdURL, name, "name"); err != nil {
@@ -374,16 +455,4 @@ func setMember(name string, peerURLs []string, status clustermembercontroller.Me
 		return nil, err
 	}
 	return etcdURL, nil
-}
-
-func isPendingRemoval(members clustermembercontroller.Member, pending []clustermembercontroller.Member) bool {
-	for _, pendingMember := range pending {
-		if pendingMember.Conditions == nil {
-			return false
-		}
-		if pendingMember.Name == members.Name && pendingMember.Conditions[0].Type == clustermembercontroller.MemberRemove {
-			return true
-		}
-	}
-	return false
 }
