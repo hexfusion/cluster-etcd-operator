@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift/cluster-etcd-operator/pkg/operator/ceoutils"
+	ceoapi "github.com/openshift/cluster-etcd-operator/pkg/operator/api"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -461,8 +461,8 @@ func (e *etcdObserver) isPendingRemoval(members clustermembercontroller.Member, 
 }
 
 //TODO move to util
-func getMembersFromConfig(config []interface{}) ([]ceoutils.Member, error) {
-	var members []ceoutils.Member
+func getMembersFromConfig(config []interface{}) ([]ceoapi.Member, error) {
+	var members []ceoapi.Member
 	for _, member := range config {
 		memberMap, _ := member.(map[string]interface{})
 		name, exists, err := unstructured.NestedString(memberMap, "name")
@@ -488,11 +488,11 @@ func getMembersFromConfig(config []interface{}) ([]ceoutils.Member, error) {
 			return nil, fmt.Errorf("member status does not exist")
 		}
 
-		condition := ceoutils.GetMemberCondition(status)
-		m := ceoutils.Member{
+		condition := ceoapi.GetMemberCondition(status)
+		m := ceoapi.Member{
 			Name:     name,
 			PeerURLS: []string{peerURLs},
-			Conditions: []ceoutils.MemberCondition{
+			Conditions: []ceoapi.MemberCondition{
 				{
 					Type: condition,
 				},
@@ -525,7 +525,7 @@ func setBootstrapMember(listers configobservation.Listers, etcdURLs []interface{
 			if address.Hostname == "etcd-bootstrap" {
 				name := address.Hostname
 				peerURLs := fmt.Sprintf("https://%s.%s:2380", name, dnsSuffix)
-				etcdURL, err := setMember(name, []string{peerURLs}, ceoutils.MemberUnknown)
+				etcdURL, err := setMember(name, []string{peerURLs}, ceoapi.MemberUnknown)
 				if err != nil {
 					return nil, err
 				}
@@ -536,7 +536,7 @@ func setBootstrapMember(listers configobservation.Listers, etcdURLs []interface{
 	return nil, fmt.Errorf("etcd-bootstrap endpoint does not exist")
 }
 
-func setMember(name string, peerURLs []string, status ceoutils.MemberConditionType) (map[string]interface{}, error) {
+func setMember(name string, peerURLs []string, status ceoapi.MemberConditionType) (interface{}, error) {
 	etcdURL := map[string]interface{}{}
 	if err := unstructured.SetNestedField(etcdURL, name, "name"); err != nil {
 		return nil, err
@@ -550,12 +550,12 @@ func setMember(name string, peerURLs []string, status ceoutils.MemberConditionTy
 	return etcdURL, nil
 }
 
-func isPendingRemoval(members ceoutils.Member, pending []ceoutils.Member) bool {
+func isPendingRemoval(members ceoapi.Member, pending []ceoapi.Member) bool {
 	for _, pendingMember := range pending {
 		if pendingMember.Conditions == nil {
 			return false
 		}
-		if pendingMember.Name == members.Name && pendingMember.Conditions[0].Type == ceoutils.MemberRemove {
+		if pendingMember.Name == members.Name && pendingMember.Conditions[0].Type == ceoapi.MemberRemove {
 			return true
 		}
 	}

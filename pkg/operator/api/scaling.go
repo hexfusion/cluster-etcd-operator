@@ -1,4 +1,4 @@
-package ceoutils
+package api
 
 import (
 	v1 "github.com/openshift/api/config/v1"
