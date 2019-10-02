@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	ceoapi "github.com/openshift/cluster-etcd-operator/pkg/operator/api"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -14,7 +16,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
 
-	"github.com/openshift/cluster-etcd-operator/pkg/operator/clustermembercontroller"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/configobservation"
 )
 
@@ -102,7 +103,7 @@ func ObserveClusterMembers(genericListers configobserver.Listers, recorder event
 			if errors.IsNotFound(err) {
 				// if the node is no londer available we use the endpoint observatiopn
 				klog.Warningf("error: Node %s not found: adding remove status to %s ", nodeName, previousMember.Name)
-				clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberRemove)
+				clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, ceoapi.MemberRemove)
 				if err != nil {
 					return existingConfig, append(errs, err)
 
@@ -112,7 +113,7 @@ func ObserveClusterMembers(genericListers configobserver.Listers, recorder event
 			}
 			if node.Status.Conditions != nil && node.Status.Conditions[0].Type != "NodeStatusUnknown" || node.Status.Conditions[0].Type != "NodeStatusDown" {
 				klog.Warningf("Node Condition not expected %s:", node.Status.Conditions[0].Type)
-				clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, clustermembercontroller.MemberUnknown)
+				clusterMember, err := setMember(previousMember.Name, previousMember.PeerURLS, ceoapi.MemberUnknown)
 				if err != nil {
 					return existingConfig, append(errs, err)
 				}
@@ -167,7 +168,7 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 	}
 	for _, subset := range etcdEndpoints.Subsets {
 		for _, address := range subset.NotReadyAddresses {
-			status := clustermembercontroller.MemberAdd
+			status := ceoapi.MemberAdd
 			etcdURL := map[string]interface{}{}
 			name := address.TargetRef.Name
 
@@ -180,7 +181,7 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 			}
 			if pod.Status.ContainerStatuses[0].State.Waiting != nil && pod.Status.ContainerStatuses[0].State.Waiting.Reason == "CrashLoopBackOff" {
 				if isPodCrashLoop(listers, name) {
-					status = clustermembercontroller.MemberRemove
+					status = ceoapi.MemberRemove
 				}
 			}
 			peerURLs := fmt.Sprintf("https://%s:2380", address.IP)
@@ -361,7 +362,7 @@ func (e *etcdObserver) setBootstrapMember() error {
 			if address.Hostname == "etcd-bootstrap" {
 				name := address.Hostname
 				peerURLs := fmt.Sprintf("https://%s.%s:2380", name, dnsSuffix)
-				clusterMember, err := setMember(name, []string{peerURLs}, clustermembercontroller.MemberUnknown)
+				clusterMember, err := setMember(name, []string{peerURLs}, ceoapi.MemberUnknown)
 				if err != nil {
 					return err
 				}
@@ -387,7 +388,7 @@ func (e *etcdObserver) setObserverdMembersFromEndpoint() error {
 		for _, address := range subset.Addresses {
 			name := address.TargetRef.Name
 			peerURLs := fmt.Sprintf("https://%s:2380", address.IP)
-			clusterMember, err := setMember(name, []string{peerURLs}, clustermembercontroller.MemberReady)
+			clusterMember, err := setMember(name, []string{peerURLs}, ceoapi.MemberReady)
 			if err != nil {
 				return err
 			}
@@ -400,7 +401,7 @@ func (e *etcdObserver) setObserverdMembersFromEndpoint() error {
 }
 
 func (e *etcdObserver) setObserverdPendingFromEndpoint() error {
-	status := clustermembercontroller.MemberAdd
+	status := ceoapi.MemberAdd
 
 	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdEndpointName)
 	if errors.IsNotFound(err) {
@@ -421,7 +422,7 @@ func (e *etcdObserver) setObserverdPendingFromEndpoint() error {
 			}
 			if pod.Status.ContainerStatuses[0].State.Waiting != nil && pod.Status.ContainerStatuses[0].State.Waiting.Reason == "CrashLoopBackOff" {
 				if isPodCrashLoop(e.listers, name) {
-					status = clustermembercontroller.MemberRemove
+					status = ceoapi.MemberRemove
 				}
 			}
 			peerURLs := fmt.Sprintf("https://%s:2380", address.IP)
@@ -436,7 +437,7 @@ func (e *etcdObserver) setObserverdPendingFromEndpoint() error {
 	return nil
 }
 
-func (e *etcdObserver) isPendingRemoval(members clustermembercontroller.Member, existingConfig map[string]interface{}) (bool, error) {
+func (e *etcdObserver) isPendingRemoval(members ceoapi.Member, existingConfig map[string]interface{}) (bool, error) {
 	previousPendingObserved, found, err := unstructured.NestedSlice(existingConfig, e.pendingPath...)
 	if err != nil {
 		return false, err
@@ -451,7 +452,7 @@ func (e *etcdObserver) isPendingRemoval(members clustermembercontroller.Member, 
 			if pendingMember.Conditions == nil {
 				return false, nil
 			}
-			if pendingMember.Name == members.Name && pendingMember.Conditions[0].Type == clustermembercontroller.MemberRemove {
+			if pendingMember.Name == members.Name && pendingMember.Conditions[0].Type == ceoapi.MemberRemove {
 				return true, nil
 			}
 		}
@@ -460,8 +461,8 @@ func (e *etcdObserver) isPendingRemoval(members clustermembercontroller.Member, 
 }
 
 //TODO move to util
-func getMembersFromConfig(config []interface{}) ([]clustermembercontroller.Member, error) {
-	var members []clustermembercontroller.Member
+func getMembersFromConfig(config []interface{}) ([]ceoapi.Member, error) {
+	var members []ceoapi.Member
 	for _, member := range config {
 		memberMap, _ := member.(map[string]interface{})
 		name, exists, err := unstructured.NestedString(memberMap, "name")
@@ -487,11 +488,11 @@ func getMembersFromConfig(config []interface{}) ([]clustermembercontroller.Membe
 			return nil, fmt.Errorf("member status does not exist")
 		}
 
-		condition := clustermembercontroller.GetMemberCondition(status)
-		m := clustermembercontroller.Member{
+		condition := ceoapi.GetMemberCondition(status)
+		m := ceoapi.Member{
 			Name:     name,
 			PeerURLS: []string{peerURLs},
-			Conditions: []clustermembercontroller.MemberCondition{
+			Conditions: []ceoapi.MemberCondition{
 				{
 					Type: condition,
 				},
@@ -502,7 +503,7 @@ func getMembersFromConfig(config []interface{}) ([]clustermembercontroller.Membe
 	return members, nil
 }
 
-func setMember(name string, peerURLs []string, status clustermembercontroller.MemberConditionType) (map[string]interface{}, error) {
+func setMember(name string, peerURLs []string, status ceoapi.MemberConditionType) (interface{}, error) {
 	etcdURL := map[string]interface{}{}
 	if err := unstructured.SetNestedField(etcdURL, name, "name"); err != nil {
 		return nil, err
