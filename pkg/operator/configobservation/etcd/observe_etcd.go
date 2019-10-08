@@ -10,6 +10,8 @@ import (
 	ceoapi "github.com/openshift/cluster-etcd-operator/pkg/operator/api"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/clustermembercontroller"
 
+	"github.com/openshift/cluster-etcd-operator/pkg/operator/configobservation"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -17,16 +19,11 @@ import (
 
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
-
-	"github.com/openshift/cluster-etcd-operator/pkg/operator/configobservation"
 )
 
 const (
-	EtcdEndpointNamespace = "openshift-etcd"
-	EtcdHostEndpointName  = "host-etcd"
-	EtcdEndpointName      = "etcd"
-	Pending               = "pending"
-	Member                = "member"
+	Pending = "pending"
+	Member  = "member"
 )
 
 type etcdObserver struct {
@@ -100,7 +97,7 @@ func ObserveClusterMembers(genericListers configobserver.Listers, recorder event
 		if observer.HealthyMember[previousMember.Name] || previousMember.Name == "etcd-bootstrap" {
 			continue
 		}
-		_, err := observer.listers.OpenshiftEtcdPodsLister.Pods(EtcdEndpointNamespace).Get(previousMember.Name)
+		_, err := observer.listers.OpenshiftEtcdPodsLister.Pods(clustermembercontroller.EtcdEndpointNamespace).Get(previousMember.Name)
 		if errors.IsNotFound(err) {
 			// verify the node exists
 			//TODO this is very opnionated could this come from the endpoint?
@@ -194,7 +191,7 @@ func ObservePendingClusterMembers(genericListers configobserver.Listers, recorde
 }
 
 func isPendingReady(bucket string, podName string, scalingName string) bool {
-	if bucket == "members" || podName != scalingName {
+	if bucket == "pending" && podName != scalingName {
 		return false
 	}
 	return true
@@ -237,20 +234,20 @@ func ObserveStorageURLs(genericListers configobserver.Listers, recorder events.R
 	}
 
 	var observerdClusterMembers []string
-	etcdEndpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(EtcdEndpointNamespace).Get(EtcdHostEndpointName)
+	etcdEndpoints, err := listers.OpenshiftEtcdEndpointsLister.Endpoints(clustermembercontroller.EtcdEndpointNamespace).Get(clustermembercontroller.EtcdHostEndpointName)
 	if errors.IsNotFound(err) {
-		recorder.Warningf("ObserveStorageFailed", "Required %s/%s endpoint not found", EtcdEndpointNamespace, EtcdHostEndpointName)
+		recorder.Warningf("ObserveStorageFailed", "Required %s/%s endpoint not found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		errs = append(errs, fmt.Errorf("endpoints/host-etcd.openshift-etcd: not found"))
 		return
 	}
 	if err != nil {
-		recorder.Warningf("ObserveStorageFailed", "Error getting %s/%s endpoint: %v", EtcdEndpointNamespace, EtcdHostEndpointName, err)
+		recorder.Warningf("ObserveStorageFailed", "Error getting %s/%s endpoint: %v", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName, err)
 		errs = append(errs, err)
 		return
 	}
 	dnsSuffix := etcdEndpoints.Annotations["alpha.installer.openshift.io/dns-suffix"]
 	if len(dnsSuffix) == 0 {
-		dnsErr := fmt.Errorf("endpoints %s/%s: alpha.installer.openshift.io/dns-suffix annotation not found", EtcdEndpointNamespace, EtcdHostEndpointName)
+		dnsErr := fmt.Errorf("endpoints %s/%s: alpha.installer.openshift.io/dns-suffix annotation not found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		recorder.Warning("ObserveStorageFailed", dnsErr.Error())
 		errs = append(errs, dnsErr)
 		return
@@ -258,7 +255,7 @@ func ObserveStorageURLs(genericListers configobserver.Listers, recorder events.R
 	for subsetIndex, subset := range etcdEndpoints.Subsets {
 		for addressIndex, address := range subset.Addresses {
 			if address.Hostname == "" {
-				addressErr := fmt.Errorf("endpoints %s/%s: subsets[%v]addresses[%v].hostname not found", EtcdHostEndpointName, EtcdEndpointNamespace, subsetIndex, addressIndex)
+				addressErr := fmt.Errorf("endpoints %s/%s: subsets[%v]addresses[%v].hostname not found", clustermembercontroller.EtcdHostEndpointName, clustermembercontroller.EtcdEndpointNamespace, subsetIndex, addressIndex)
 				recorder.Warningf("ObserveStorageFailed", addressErr.Error())
 				errs = append(errs, addressErr)
 				continue
@@ -268,7 +265,7 @@ func ObserveStorageURLs(genericListers configobserver.Listers, recorder events.R
 	}
 
 	if len(observerdClusterMembers) == 0 {
-		emptyURLErr := fmt.Errorf("endpoints %s/%s: no etcd endpoint addresses found", EtcdEndpointNamespace, EtcdHostEndpointName)
+		emptyURLErr := fmt.Errorf("endpoints %s/%s: no etcd endpoint addresses found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		recorder.Warning("ObserveStorageFailed", emptyURLErr.Error())
 		errs = append(errs, emptyURLErr)
 	}
@@ -326,18 +323,18 @@ func isPodCrashLoop(bucket string, pod *corev1.Pod) bool {
 }
 
 func (e *etcdObserver) setClusterDomain() error {
-	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdHostEndpointName)
+	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(clustermembercontroller.EtcdEndpointNamespace).Get(clustermembercontroller.EtcdHostEndpointName)
 	if errors.IsNotFound(err) {
-		e.recorder.Warningf("ObserveClusterPending", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
+		e.recorder.Warningf("ObserveClusterPending", "Required %s/%s endpoint not found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		return err
 	}
 	if err != nil {
-		e.recorder.Warningf("ObserveClusterPending", "Error getting %s/%s endpoint: %v", etcdEndpointNamespace, etcdHostEndpointName, err)
+		e.recorder.Warningf("ObserveClusterPending", "Error getting %s/%s endpoint: %v", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName, err)
 		return err
 	}
 	clusterDomain := endpoints.Annotations["alpha.installer.openshift.io/dns-suffix"]
 	if len(clusterDomain) == 0 {
-		err := fmt.Errorf("endpoints %s/%s: alpha.installer.openshift.io/dns-suffix annotation not found", etcdEndpointNamespace, etcdHostEndpointName)
+		err := fmt.Errorf("endpoints %s/%s: alpha.installer.openshift.io/dns-suffix annotation not found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		e.recorder.Warning("ObserveClusterMembers", err.Error())
 		return err
 	}
@@ -346,13 +343,13 @@ func (e *etcdObserver) setClusterDomain() error {
 }
 
 func (e *etcdObserver) setBootstrapMember() error {
-	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(EtcdEndpointNamespace).Get(EtcdHostEndpointName)
+	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(clustermembercontroller.EtcdEndpointNamespace).Get(clustermembercontroller.EtcdHostEndpointName)
 	if errors.IsNotFound(err) {
-		e.recorder.Warningf("setBootstrapMember", "Required %s/%s endpoint not found", EtcdEndpointNamespace, EtcdHostEndpointName)
+		e.recorder.Warningf("setBootstrapMember", "Required %s/%s endpoint not found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		return err
 	}
 	if err != nil {
-		e.recorder.Warningf("setBootstrapMember", "Error getting %s/%s endpoint: %v", EtcdEndpointNamespace, EtcdHostEndpointName, err)
+		e.recorder.Warningf("setBootstrapMember", "Error getting %s/%s endpoint: %v", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName, err)
 		return err
 	}
 
@@ -376,13 +373,13 @@ func (e *etcdObserver) setObservedEtcdFromEndpoint(bucket string) error {
 	var endpointAddressList []corev1.EndpointAddress
 	// var previous []ceoapi.Member
 
-	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(etcdEndpointNamespace).Get(etcdEndpointName)
+	endpoints, err := e.listers.OpenshiftEtcdEndpointsLister.Endpoints(clustermembercontroller.EtcdEndpointNamespace).Get(clustermembercontroller.EtcdEndpointName)
 	if errors.IsNotFound(err) {
-		e.recorder.Warningf("setObservedFromEndpoint", "Required %s/%s endpoint not found", etcdEndpointNamespace, etcdHostEndpointName)
+		e.recorder.Warningf("setObservedFromEndpoint", "Required %s/%s endpoint not found", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName)
 		return err
 	}
 	if err != nil {
-		e.recorder.Warningf("setObservedFromEndpoint", "Error getting %s/%s endpoint: %v", etcdEndpointNamespace, etcdHostEndpointName, err)
+		e.recorder.Warningf("setObservedFromEndpoint", "Error getting %s/%s endpoint: %v", clustermembercontroller.EtcdEndpointNamespace, clustermembercontroller.EtcdHostEndpointName, err)
 		return err
 	}
 	for _, subset := range endpoints.Subsets {
@@ -396,11 +393,15 @@ func (e *etcdObserver) setObservedEtcdFromEndpoint(bucket string) error {
 		}
 		for _, address := range endpointAddressList {
 			name := address.TargetRef.Name
-			cm, err := e.listers.OpenshiftEtcdConfigMapsLister.ConfigMaps(etcdEndpointNamespace).Get("member-config")
+			cm, err := e.listers.OpenshiftEtcdConfigMapsLister.ConfigMaps(clustermembercontroller.EtcdEndpointNamespace).Get("member-config")
 			if err != nil {
 				return err
 			}
 			scalingName, err := clustermembercontroller.GetScaleAnnotationName(cm)
+			if err != nil {
+				return err
+			}
+			pod, err := e.listers.OpenshiftEtcdPodsLister.Pods(clustermembercontroller.EtcdEndpointNamespace).Get(name)
 			if err != nil {
 				return err
 			}

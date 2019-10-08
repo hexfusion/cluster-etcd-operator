@@ -7,10 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openshift/cluster-etcd-operator/pkg/operator/configobservation/etcd"
-
-	ceoapi "github.com/openshift/cluster-etcd-operator/pkg/operator/api"
-
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -29,6 +25,8 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	corev1client "k8s.io/client-go/kubernetes"
+
+	ceoapi "github.com/openshift/cluster-etcd-operator/pkg/operator/api"
 )
 
 const (
@@ -37,6 +35,9 @@ const (
 	etcdCertFile             = "/var/run/secrets/etcd-client/tls.crt"
 	etcdKeyFile              = "/var/run/secrets/etcd-client/tls.key"
 	etcdTrustedCAFile        = "/var/run/configmaps/etcd-ca/ca-bundle.crt"
+	EtcdEndpointNamespace    = "openshift-etcd"
+	EtcdHostEndpointName     = "host-etcd"
+	EtcdEndpointName         = "etcd"
 )
 
 type ClusterMemberController struct {
@@ -471,8 +472,8 @@ func (c *ClusterMemberController) RemoveBootstrap() error {
 
 func (c *ClusterMemberController) RemoveBootstrapFromEndpoint() error {
 	hostEndpoint, err := c.clientset.CoreV1().
-		Endpoints(etcd.EtcdEndpointNamespace).
-		Get(etcd.EtcdHostEndpointName, metav1.GetOptions{})
+		Endpoints(EtcdEndpointNamespace).
+		Get(EtcdHostEndpointName, metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("error getting endpoint: %#v\n", err)
 		return err
@@ -496,7 +497,7 @@ func (c *ClusterMemberController) RemoveBootstrapFromEndpoint() error {
 
 	hostEndpoint.Subsets[subsetIndex].Addresses = append(hostEndpoint.Subsets[subsetIndex].Addresses[0:bootstrapIndex], hostEndpoint.Subsets[subsetIndex].Addresses[bootstrapIndex+1:]...)
 
-	_, err = c.clientset.CoreV1().Endpoints(etcd.EtcdEndpointNamespace).Update(hostEndpoint)
+	_, err = c.clientset.CoreV1().Endpoints(EtcdEndpointNamespace).Update(hostEndpoint)
 	if err != nil {
 		klog.Errorf("error updating endpoint: %#v\n", err)
 		return err
@@ -512,6 +513,7 @@ func (c *ClusterMemberController) getResyncName(pods *corev1.PodList) (string, e
 
 	for i := range pods.Items {
 		p := &pods.Items[i]
+		klog.Errorf("getResyncName: compare %s vs %s\n", p.Name, name)
 		if p.Name == name {
 			return name, nil
 		}
