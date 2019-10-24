@@ -44,18 +44,23 @@ spec:
         operator: Exists
         effect: NoSchedule
       containers:
-      - image: "quay.io/hexfusion/cluster-etcd-operator:latest"
+      - image: "quay.io/openshift/cluster-etcd-operator:latest"
         imagePullPolicy: Always
         name: etcd-staticpod
         command: ["/usr/bin/cluster-etcd-operator"]
         args:
         - "staticpod"
+        serviceAccount: default
         terminationMessagePolicy: FallbackToLogsOnError
         env:
         - name: NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         volumeMounts:
         - mountPath: /etc/kubernetes/manifests
           name: manifests

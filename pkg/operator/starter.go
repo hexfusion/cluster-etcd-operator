@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openshift/cluster-etcd-operator/pkg/operator/hostetcdendpointcontroller"
+
+	"k8s.io/klog"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -18,6 +22,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-etcd-operator/pkg/operator/bootstrapteardown"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/clustermembercontroller"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/etcdcertsigner"
@@ -45,6 +50,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	operatorConfigInformers := operatorv1informers.NewSharedInformerFactory(operatorConfigClient, 10*time.Minute)
+	//operatorConfigInformers.ForResource()
 	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
 		"",
@@ -118,6 +124,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		kubeInformersForNamespaces.InformersFor("openshift-etcd"),
 		ctx.EventRecorder,
 	)
+	hostEtcdEndpointController := hostetcdendpointcontroller.NewHostEtcdEndpointcontroller(
+		coreClient,
+		operatorClient,
+		kubeInformersForNamespaces.InformersFor("openshift-etcd"),
+		ctx.EventRecorder,
+	)
 
 	clusterMemberController := clustermembercontroller.NewClusterMemberController(
 		coreClient,
@@ -131,10 +143,17 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	configInformers.Start(ctx.Done())
 
 	go etcdCertSignerController.Run(1, ctx.Done())
+	go hostEtcdEndpointController.Run(1, ctx.Done())
 	go resourceSyncController.Run(1, ctx.Done())
 	go configObserver.Run(1, ctx.Done())
 	go clusterOperatorStatus.Run(1, ctx.Done())
 	go clusterMemberController.Run(ctx.Done())
+	go func() {
+		err := bootstrapteardown.TearDownBootstrap(ctx.KubeConfig, clusterMemberController)
+		if err != nil {
+			klog.Fatalf("Error tearing down bootstrap: %#v", err)
+		}
+	}()
 
 	<-ctx.Done()
 	return fmt.Errorf("stopped")
