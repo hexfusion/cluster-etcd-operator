@@ -9,23 +9,14 @@ spec:
   initContainers:
   - name: discovery
     image: "{{.Images.SetupEtcdEnv}}"
-    command: ["/usr/bin/setup-etcd-environment"]
     args:
     - "run"
     - "--discovery-srv={{.EtcdDiscoveryDomain}}"
     - "--output-file=/run/etcd/environment"
-    - "--bootstrap-srv=false"
     - "--v=4"
     volumeMounts:
     - name: discovery
       mountPath: /run/etcd/
-    - name: data-dir
-      mountPath: /var/lib/etcd/
-    env:
-    - name: ETCD_DATA_DIR
-      value: "/var/lib/etcd"
-    - name: ETCD_NAME
-      value: "etcd-bootstrap"
   - name: certs
     image: "{{.Images.KubeClientAgent}}"
     command:
@@ -94,7 +85,8 @@ spec:
       set +a
 
       exec etcd \
-        --initial-advertise-peer-urls=https://${ETCD_DNS_NAME}:2380 \
+        --name etcd-bootstrap \
+        --initial-advertise-peer-urls=https://${ETCD_IPV4_ADDRESS}:2380 \
         --cert-file=/etc/ssl/etcd/system:etcd-server:${ETCD_DNS_NAME}.crt \
         --key-file=/etc/ssl/etcd/system:etcd-server:${ETCD_DNS_NAME}.key \
         --trusted-ca-file=/etc/ssl/etcd/ca.crt \
@@ -126,7 +118,9 @@ spec:
     - name: ETCD_DATA_DIR
       value: "/var/lib/etcd"
     - name: ETCD_NAME
-      value: "etcd-bootstrap"
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
     ports:
     - name: peer
       containerPort: 2380
