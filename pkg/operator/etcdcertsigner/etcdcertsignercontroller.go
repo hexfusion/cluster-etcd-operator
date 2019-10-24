@@ -9,16 +9,16 @@ import (
 	"fmt"
 
 	ceoapi "github.com/openshift/cluster-etcd-operator/pkg/operator/api"
+	"github.com/openshift/cluster-etcd-operator/pkg/operator/clustermembercontroller"
 
 	"strings"
 	"time"
 
 	"github.com/openshift/library-go/pkg/crypto"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/openshift/cluster-etcd-operator/pkg/operator/clustermembercontroller"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,9 +44,10 @@ const (
 type EtcdCertSignerController struct {
 	clientset corev1client.Interface
 	// Not using this but still keeping it in there
-	operatorConfigClient v1helpers.OperatorClient
-	queue                workqueue.RateLimitingInterface
-	eventRecorder        events.Recorder
+	operatorConfigClient                   v1helpers.OperatorClient
+	kubeInformersForOpenshiftEtcdNamespace informers.SharedInformerFactory
+	queue                                  workqueue.RateLimitingInterface
+	eventRecorder                          events.Recorder
 }
 
 func NewEtcdCertSignerController(
@@ -57,10 +58,11 @@ func NewEtcdCertSignerController(
 	eventRecorder events.Recorder,
 ) *EtcdCertSignerController {
 	c := &EtcdCertSignerController{
-		clientset:            clientset,
-		operatorConfigClient: operatorConfigClient,
-		queue:                workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "EtcdCertSignerController"),
-		eventRecorder:        eventRecorder.WithComponentSuffix("etcd-cert-signer-controller"),
+		clientset:                              clientset,
+		operatorConfigClient:                   operatorConfigClient,
+		kubeInformersForOpenshiftEtcdNamespace: kubeInformersForOpenshiftEtcdNamespace,
+		queue:                                  workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "EtcdCertSignerController"),
+		eventRecorder:                          eventRecorder.WithComponentSuffix("etcd-cert-signer-controller"),
 	}
 	kubeInformersForOpenshiftEtcdNamespace.Core().V1().ConfigMaps().Informer().AddEventHandler(c.eventHandler())
 	return c
@@ -72,6 +74,11 @@ func (c *EtcdCertSignerController) Run(i int, stopCh <-chan struct{}) {
 
 	klog.Infof("Starting ClusterMemberController")
 	defer klog.Infof("Shutting down ClusterMemberController")
+
+	if !cache.WaitForCacheSync(stopCh, c.kubeInformersForOpenshiftEtcdNamespace.Core().V1().ConfigMaps().Informer().HasSynced) {
+		utilruntime.HandleError(fmt.Errorf("caches did not sync"))
+		return
+	}
 
 	go wait.Until(c.runWorker, time.Second, stopCh)
 
