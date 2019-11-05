@@ -29,6 +29,7 @@ import (
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/etcdcertsigner"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/operatorclient"
 	"github.com/openshift/cluster-etcd-operator/pkg/operator/resourcesynccontroller"
+	operatorv1helpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
@@ -153,6 +154,35 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	go resourceSyncController.Run(1, ctx.Done())
 	if operatorSpec.ManagementState == operatorv1.Managed {
 		go clusterOperatorStatus.Run(1, ctx.Done())
+	} else {
+		versionCh := versionRecorder.VersionChangedChannel()
+		go func() {
+			for {
+				select {
+				case <-versionCh:
+					// TODO find a better way of doing this
+					versions := versionRecorder.GetVersions()
+					originalClusterOperatorObj, err := configInformers.Config().V1().ClusterOperators().Lister().Get("openshift-etcd")
+					if err != nil {
+						klog.Errorf("error getting cluster operator %#v", err)
+						break
+					}
+					clusterOperatorObj := originalClusterOperatorObj.DeepCopy()
+					for operand, version := range versions {
+						previousVersion := operatorv1helpers.SetOperandVersion(&clusterOperatorObj.Status.Versions, configv1.OperandVersion{Name: operand, Version: version})
+						if previousVersion != version {
+							// having this message will give us a marker in events when the operator updated compared to when the operand is updated
+							klog.Infof("clusteroperator/%s version %q changed from %q to %q", "openshift-etcd", operand, previousVersion, version)
+						}
+					}
+					if _, updateErr := configClient.ConfigV1().ClusterOperators().UpdateStatus(clusterOperatorObj); err != nil {
+						klog.Errorf("error updage clusteroperator/%s %#v", "openshift-etcd", updateErr)
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
 	}
 	go configObserver.Run(1, ctx.Done())
 	go clusterMemberController.Run(ctx.Done())
