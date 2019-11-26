@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/openshift/cluster-etcd-operator/pkg/cmd/waitforceo"
+
 	"github.com/openshift/cluster-etcd-operator/pkg/cmd/mount"
 
 	"github.com/spf13/cobra"
@@ -52,6 +54,7 @@ func NewSSCSCommand() *cobra.Command {
 	cmd.AddCommand(staticsynccontroller.NewStaticSyncCommand(os.Stderr))
 	cmd.AddCommand(staticpodcontroller.NewStaticPodCommand(os.Stderr))
 	cmd.AddCommand(mount.NewMountCommand(os.Stderr))
+	cmd.AddCommand(waitforceo.NewWaitForCeoCommand(os.Stderr))
 
 	return cmd
 }
