@@ -19,6 +19,7 @@ require (
 	github.com/vincent-petithory/dataurl v0.0.0-20191104211930-d1553a71de50
 	go.etcd.io/etcd v0.0.0-20200401174654-e694b7bb0875
 	google.golang.org/grpc v1.26.0
+	gopkg.in/yaml.v2 v2.2.8
 	k8s.io/api v0.18.3
 	k8s.io/apimachinery v0.18.3
 	k8s.io/client-go v0.18.3
