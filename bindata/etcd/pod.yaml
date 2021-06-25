@@ -164,8 +164,18 @@ ${COMPUTED_ENV_VARS}
         memory: 600Mi
         cpu: 300m
     readinessProbe:
-      tcpSocket:
-        port: 2380
+      exec:
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -xe
+            unset ETCDCTL_ENDPOINTS
+            /usr/bin/etcdctl \
+              --command-timeout=2s \
+              --dial-timeout=2s \
+              --endpoints=https://${NODE_NODE_ENVVAR_NAME_IP}:2379 \
+              endpoint health -w json | grep \"health\":true
       failureThreshold: 3
       initialDelaySeconds: 3
       periodSeconds: 5
